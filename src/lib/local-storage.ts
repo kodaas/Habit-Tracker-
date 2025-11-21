@@ -1,4 +1,4 @@
-type StreakMode = "EVERY_DAY" | "TIMES_PER_WEEK" | "EVERY_WEEKDAY" | "CUSTOM_DAYS";
+type StreakMode = "EVERY_DAY" | "TWICE_DAILY" | "TIMES_PER_WEEK" | "EVERY_WEEKDAY" | "EVERY_OTHER_DAY" | "WEEKENDS_ONLY";
 
 export interface Grid {
     _id: string;

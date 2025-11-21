@@ -1,6 +1,6 @@
 import { dayOfWeekFromIso } from "./date";
 
-type Mode = "EVERY_DAY" | "TIMES_PER_WEEK" | "EVERY_WEEKDAY" | "CUSTOM_DAYS";
+type Mode = "EVERY_DAY" | "TWICE_DAILY" | "TIMES_PER_WEEK" | "EVERY_WEEKDAY" | "EVERY_OTHER_DAY" | "WEEKENDS_ONLY";
 
 export function computeStreaks(params: {
     streakMode: Mode;
@@ -111,18 +111,19 @@ export function computeStreaks(params: {
     };
 
     const weekdaySet = new Set([1, 2, 3, 4, 5]); // Mon..Fri
-    const customSet = new Set(params.customDaysOfWeek ?? []);
-    const dayMatches = (iso: string, useCustom: boolean) => {
+    const weekendSet = new Set([0, 6]); // Sat, Sun
+
+    const dayMatches = (iso: string, targetDays: Set<number>) => {
         const dow = dayOfWeekFromIso(iso);
-        return useCustom ? customSet.has(dow) : weekdaySet.has(dow);
+        return targetDays.has(dow);
     };
 
-    const scheduleCurrent = (useCustom: boolean) => {
+    const scheduleCurrent = (targetDays: Set<number>) => {
         let streak = 0;
         let offset = 0;
         while (true) {
             const iso = prevIso(today, offset);
-            const dowMatches = dayMatches(iso, useCustom);
+            const dowMatches = dayMatches(iso, targetDays);
             if (!dowMatches) {
                 offset += 1;
                 continue;
@@ -137,17 +138,60 @@ export function computeStreaks(params: {
         return streak;
     };
 
-    const scheduleBest = (useCustom: boolean) => {
-        const filtered = [...set].filter(iso => dayMatches(iso, useCustom)).sort();
+    const scheduleBest = (targetDays: Set<number>) => {
+        const filtered = [...set].filter(iso => dayMatches(iso, targetDays)).sort();
         let best = 0, curr = 0, prev: Date | null = null;
-        const isConsecutiveWithSkip = (a: Date, b: Date) => {
-            return prev !== null && (b.getTime() - a.getTime() === oneDayMs);
-        };
         for (const iso of filtered) {
             const [y, m, d] = iso.split("-").map(Number);
             const dt = new Date(y, m - 1, d);
-            if (prev && isConsecutiveWithSkip(prev, dt)) {
+            const daysDiff = prev ? (dt.getTime() - prev.getTime()) / oneDayMs : 0;
+            if (prev && daysDiff === 1) {
                 curr += 1;
+            } else {
+                curr = 1;
+            }
+            best = Math.max(best, curr);
+            prev = dt;
+        }
+        return best;
+    };
+
+    const everyOtherDayCurrent = () => {
+        let streak = 0;
+        let offset = 0;
+        let lastCompletedOffset = -1;
+
+        while (true) {
+            const iso = prevIso(today, offset);
+            if (isCompleted(iso)) {
+                if (lastCompletedOffset === -1 || offset - lastCompletedOffset <= 2) {
+                    streak += 1;
+                    lastCompletedOffset = offset;
+                    offset += 1;
+                } else {
+                    break;
+                }
+            } else {
+                offset += 1;
+                if (offset > lastCompletedOffset + 2) break;
+            }
+        }
+        return streak;
+    };
+
+    const everyOtherDayBest = () => {
+        const sorted = [...set].sort();
+        let best = 0, curr = 0, prev: Date | null = null;
+        for (const iso of sorted) {
+            const [y, m, d] = iso.split("-").map(Number);
+            const dt = new Date(y, m - 1, d);
+            if (prev) {
+                const daysDiff = (dt.getTime() - prev.getTime()) / oneDayMs;
+                if (daysDiff <= 2) {
+                    curr += 1;
+                } else {
+                    curr = 1;
+                }
             } else {
                 curr = 1;
             }
@@ -162,6 +206,7 @@ export function computeStreaks(params: {
 
     switch (params.streakMode) {
         case "EVERY_DAY":
+        case "TWICE_DAILY":
             currentStreak = everyDayCurrent();
             bestStreak = everyDayBest();
             break;
@@ -172,12 +217,16 @@ export function computeStreaks(params: {
             break;
         }
         case "EVERY_WEEKDAY":
-            currentStreak = scheduleCurrent(false);
-            bestStreak = scheduleBest(false);
+            currentStreak = scheduleCurrent(weekdaySet);
+            bestStreak = scheduleBest(weekdaySet);
             break;
-        case "CUSTOM_DAYS":
-            currentStreak = scheduleCurrent(true);
-            bestStreak = scheduleBest(true);
+        case "WEEKENDS_ONLY":
+            currentStreak = scheduleCurrent(weekendSet);
+            bestStreak = scheduleBest(weekendSet);
+            break;
+        case "EVERY_OTHER_DAY":
+            currentStreak = everyOtherDayCurrent();
+            bestStreak = everyOtherDayBest();
             break;
     }
 
